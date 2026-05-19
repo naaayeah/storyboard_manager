@@ -49,9 +49,7 @@ export default function Step1_StoryInput({ project, updateProject, goToStep }) {
 
   const handleGenerate = async () => {
     setLocalError('');
-    const demo = !import.meta.env.VITE_ANTHROPIC_API_KEY ||
-      import.meta.env.VITE_ANTHROPIC_API_KEY === 'your_api_key_here';
-    if (!demo && !si.text.trim()) {
+    if (!si.text.trim()) {
       setLocalError('스토리를 입력해주세요.');
       return;
     }
