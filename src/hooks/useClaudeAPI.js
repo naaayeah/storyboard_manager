@@ -1,25 +1,35 @@
 import { useState } from 'react';
 
 const extractJson = (text) => {
+  if (!text || !text.trim()) throw new Error('빈 응답을 받았습니다.');
+
   // Remove markdown fences
   let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
-  // Try direct parse first
+  // Try direct parse
   try { return JSON.parse(clean); } catch {}
 
-  // Find the outermost { ... } or [ ... ] block
-  const objMatch = clean.match(/\{[\s\S]*\}/);
-  if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
+  // Find the outermost { ... } block (greedy — gets the largest match)
+  const objStart = clean.indexOf('{');
+  const objEnd   = clean.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) {
+    try { return JSON.parse(clean.slice(objStart, objEnd + 1)); } catch {}
+  }
 
-  const arrMatch = clean.match(/\[[\s\S]*\]/);
-  if (arrMatch) { try { return JSON.parse(arrMatch[0]); } catch {} }
+  // Find the outermost [ ... ] block
+  const arrStart = clean.indexOf('[');
+  const arrEnd   = clean.lastIndexOf(']');
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try { return JSON.parse(clean.slice(arrStart, arrEnd + 1)); } catch {}
+  }
 
-  throw new Error('응답을 파싱할 수 없습니다. 다시 시도해주세요.');
+  console.error('[useClaudeAPI] JSON 파싱 실패. 수신 텍스트 (첫 500자):', clean.slice(0, 500));
+  throw new Error('응답을 파싱할 수 없습니다. 콘솔을 확인해주세요.');
 };
 
 export const useClaudeAPI = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
   const [streamText, setStreamText] = useState('');
 
   const callClaude = async ({
@@ -27,7 +37,7 @@ export const useClaudeAPI = () => {
     messages,
     maxTokens = 1000,
     isJson = false,
-    onStream,        // optional (text) => void callback
+    onStream,
   }) => {
     setLoading(true);
     setError(null);
@@ -51,38 +61,67 @@ export const useClaudeAPI = () => {
         }),
       });
 
+      // Non-2xx: read body as JSON error
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err?.error?.message || `HTTP ${response.status}`);
+        let msg = `HTTP ${response.status}`;
+        try { const e = await response.json(); msg = e?.error?.message || msg; } catch {}
+        throw new Error(msg);
       }
 
       const reader  = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText  = '';
       let buf       = '';
+      let lastEvent = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
+        // Handle both \n and \r\n line endings
         buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop(); // keep incomplete last line
+        const lines = buf.split(/\r?\n/);
+        buf = lines.pop();
 
         for (const line of lines) {
+          // Track event type
+          if (line.startsWith('event: ')) {
+            lastEvent = line.slice(7).trim();
+            continue;
+          }
+
           if (!line.startsWith('data: ')) continue;
           const raw = line.slice(6).trim();
-          if (raw === '[DONE]') continue;
-          try {
-            const evt = JSON.parse(raw);
-            if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-              fullText += evt.delta.text;
-              setStreamText(fullText);
-              onStream?.(fullText);
-            }
-          } catch {}
+          if (!raw || raw === '[DONE]') continue;
+
+          let evt;
+          try { evt = JSON.parse(raw); } catch { continue; }
+
+          // SSE-level error from Anthropic
+          if (evt.type === 'error') {
+            throw new Error(evt.error?.message || '스트리밍 오류가 발생했습니다.');
+          }
+
+          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+            fullText += evt.delta.text;
+            setStreamText(fullText);
+            onStream?.(fullText);
+          }
         }
       }
+
+      // Flush any remaining buffer
+      if (buf.trim().startsWith('data: ')) {
+        const raw = buf.trim().slice(6).trim();
+        try {
+          const evt = JSON.parse(raw);
+          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+            fullText += evt.delta.text;
+          }
+        } catch {}
+      }
+
+      console.log('[useClaudeAPI] 수신 완료. 길이:', fullText.length, '/ isJson:', isJson);
 
       if (isJson) return extractJson(fullText);
       return fullText;

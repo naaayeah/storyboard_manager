@@ -148,7 +148,7 @@ ${chars}
       const result = await callClaude({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        maxTokens: 6000,
+        maxTokens: 8192,
         isJson: true,
       });
       const episodes = parseStoryboardResponse(result);
