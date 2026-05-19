@@ -1,6 +1,88 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useClaudeAPI } from '../../hooks/useClaudeAPI';
 import { parseScenarioResponse, buildScenarioPromptComponents } from '../../utils/storyParser';
+
+const STAGES = [
+  '스토리 분석 중',
+  '인물 구성 중',
+  '시나리오 집필 중',
+  '마무리 검토 중',
+];
+
+function GeneratingOverlay({ streamText }) {
+  const [stageIdx, setStageIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStageIdx(i => Math.min(i + 1, STAGES.length - 1));
+    }, 4000);
+    return () => clearInterval(id);
+  }, []);
+
+  const progress = Math.min(10 + (stageIdx / (STAGES.length - 1)) * 80 + (streamText.length > 0 ? 10 : 0), 95);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, backgroundColor: 'rgba(25,25,25,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 200, padding: '24px',
+    }}>
+      <div style={{
+        backgroundColor: 'var(--tds-surface)', borderRadius: 'var(--radius-xl)',
+        padding: '32px', width: '100%', maxWidth: '480px',
+        boxShadow: 'var(--shadow-lg)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <span className="spinner spinner-blue" style={{ width: '22px', height: '22px', borderWidth: '3px' }} />
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tds-text-1)' }}>시나리오 생성 중</div>
+            <div style={{ fontSize: '13px', color: 'var(--tds-text-3)', marginTop: '2px' }}>{STAGES[stageIdx]}...</div>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ height: '6px', backgroundColor: 'var(--tds-border)', borderRadius: '999px', overflow: 'hidden', marginBottom: '16px' }}>
+          <div style={{
+            height: '100%', backgroundColor: 'var(--tds-blue)',
+            borderRadius: '999px',
+            width: `${progress}%`,
+            transition: 'width 1.2s ease',
+          }} />
+        </div>
+
+        {/* Stage dots */}
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {STAGES.map((s, i) => (
+            <div key={s} style={{ flex: 1 }}>
+              <div style={{
+                height: '3px', borderRadius: '999px',
+                backgroundColor: i <= stageIdx ? 'var(--tds-blue)' : 'var(--tds-border)',
+                transition: 'background-color 0.4s',
+              }} />
+              <div style={{
+                fontSize: '10px', color: i <= stageIdx ? 'var(--tds-blue)' : 'var(--tds-text-4)',
+                marginTop: '5px', fontWeight: i === stageIdx ? '700' : '400',
+              }}>{s}</div>
+            </div>
+          ))}
+        </div>
+
+        {streamText.length > 0 && (
+          <div style={{
+            marginTop: '16px', padding: '12px 14px',
+            backgroundColor: 'var(--tds-surface-2)', borderRadius: 'var(--radius-sm)',
+            fontSize: '12px', color: 'var(--tds-text-3)',
+            fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.6,
+            maxHeight: '80px', overflow: 'hidden',
+            maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)',
+          }}>
+            {streamText.slice(-200)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const GENRES = ['숏츠 드라마', '로맨스', '스릴러', '일상', '기타'];
 const PLATFORMS = ['유튜브 숏츠', '인스타 릴스', '틱톡'];
@@ -12,7 +94,7 @@ const EPISODE_COUNTS = [
 ];
 
 export default function Step1_StoryInput({ project, updateProject, goToStep }) {
-  const { callClaude, loading, error } = useClaudeAPI();
+  const { callClaude, loading, error, streamText } = useClaudeAPI();
   const [localError, setLocalError] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
 
@@ -104,6 +186,7 @@ ${storyText}
 
   return (
     <div style={{ maxWidth: '680px', margin: '0 auto' }}>
+      {loading && <GeneratingOverlay streamText={streamText} />}
 
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>

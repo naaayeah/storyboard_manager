@@ -1,9 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useClaudeAPI } from '../../hooks/useClaudeAPI';
 import { parseStoryboardResponse } from '../../utils/storyParser';
 
+const SB_STAGES = ['시나리오 분석 중', '씬 구성 중', '컷 배분 중', '스토리보드 완성 중'];
+
+function StoryboardOverlay({ streamText }) {
+  const [stageIdx, setStageIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStageIdx(i => Math.min(i + 1, SB_STAGES.length - 1));
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const progress = Math.min(8 + (stageIdx / (SB_STAGES.length - 1)) * 82 + (streamText.length > 0 ? 8 : 0), 95);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, backgroundColor: 'rgba(25,25,25,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 200, padding: '24px',
+    }}>
+      <div style={{
+        backgroundColor: 'var(--tds-surface)', borderRadius: 'var(--radius-xl)',
+        padding: '32px', width: '100%', maxWidth: '480px',
+        boxShadow: 'var(--shadow-lg)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <span className="spinner spinner-blue" style={{ width: '22px', height: '22px', borderWidth: '3px' }} />
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tds-text-1)' }}>스토리보드 생성 중</div>
+            <div style={{ fontSize: '13px', color: 'var(--tds-text-3)', marginTop: '2px' }}>{SB_STAGES[stageIdx]}...</div>
+          </div>
+        </div>
+
+        <div style={{ height: '6px', backgroundColor: 'var(--tds-border)', borderRadius: '999px', overflow: 'hidden', marginBottom: '16px' }}>
+          <div style={{
+            height: '100%', backgroundColor: 'var(--tds-blue)',
+            borderRadius: '999px', width: `${progress}%`,
+            transition: 'width 1.4s ease',
+          }} />
+        </div>
+
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {SB_STAGES.map((s, i) => (
+            <div key={s} style={{ flex: 1 }}>
+              <div style={{
+                height: '3px', borderRadius: '999px',
+                backgroundColor: i <= stageIdx ? 'var(--tds-blue)' : 'var(--tds-border)',
+                transition: 'background-color 0.4s',
+              }} />
+              <div style={{
+                fontSize: '10px', color: i <= stageIdx ? 'var(--tds-blue)' : 'var(--tds-text-4)',
+                marginTop: '5px', fontWeight: i === stageIdx ? '700' : '400',
+              }}>{s}</div>
+            </div>
+          ))}
+        </div>
+
+        {streamText.length > 0 && (
+          <div style={{
+            marginTop: '16px', padding: '12px 14px',
+            backgroundColor: 'var(--tds-surface-2)', borderRadius: 'var(--radius-sm)',
+            fontSize: '12px', color: 'var(--tds-text-3)',
+            fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.6,
+            maxHeight: '80px', overflow: 'hidden',
+            maskImage: 'linear-gradient(to bottom, black 60%, transparent 100%)',
+          }}>
+            {streamText.slice(-200)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Step2_Scenario({ project, updateProject, goToStep }) {
-  const { callClaude, loading, error } = useClaudeAPI();
+  const { callClaude, loading, error, streamText } = useClaudeAPI();
   const [localError, setLocalError] = useState('');
   const [openEpisodes, setOpenEpisodes] = useState({});
 
@@ -90,6 +164,7 @@ ${chars}
 
   return (
     <div style={{ maxWidth: '760px', margin: '0 auto' }}>
+      {loading && <StoryboardOverlay streamText={streamText} />}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px', gap: '12px' }}>
